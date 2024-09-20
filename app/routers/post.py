@@ -1,4 +1,4 @@
-from .. import models, schemas
+from .. import models, schemas, oauth2
 from fastapi import FastAPI, Response, status, HTTPException, Depends, APIRouter
 from ..database import engine, get_db
 from sqlalchemy.orm import Session
@@ -10,16 +10,22 @@ router = APIRouter(
 )
 
 @router.get('/', response_model=List[schemas.Post])
-def get_posts(db: Session = Depends(get_db)): # get all posts
+def get_posts(db: Session = Depends(get_db), current_user: int = Depends(oauth2.get_current_user), 
+              limit:int = 5, skip: int = 0, search: Optional[str] = ''): # get all posts
     # cursor.execute(""" SELECT * FROM "Post";""")
     # posts = cursor.fetchall()
     # print(posts)
-    posts = db.query(models.PostTable).all()
+    posts = db.query(models.PostTable).filter(models.PostTable.title.contains(search)) \
+        .limit(limit).offset(skip).all()
 
+    # use this instead if you only want to return posts for that specific current_user
+    # posts = db.query(models.PostTable).filter(models.PostTable.owner_id == current_user.id).all() 
+
+    # print(current_user.id)
     return posts
 
 @router.post('/', status_code=status.HTTP_201_CREATED, response_model=schemas.Post)
-def create_post(post: schemas.PostCreate, db: Session = Depends(get_db)):
+def create_post(post: schemas.PostCreate, db: Session = Depends(get_db), current_user: int = Depends(oauth2.get_current_user)):
     # print(post) # pydantic model. shows in console
 
     # post_dict = post.model_dump() # pydantic model to dictionary. 
@@ -32,7 +38,8 @@ def create_post(post: schemas.PostCreate, db: Session = Depends(get_db)):
     # conn.commit()
 
     # print(post.model_dump())
-    new_post = models.PostTable(**post.model_dump()) # this unpacks the dictionary so that you don't have to type post.title, post.content, ...
+    # print('\n\n', current_user.id, end='\n\n')
+    new_post = models.PostTable(owner_id=current_user.id, **post.model_dump()) # this unpacks the dictionary so that you don't have to type post.title, post.content, ...
     db.add(new_post)
     db.commit()
     db.refresh(new_post) # this is the equivalent of RETURNING in sql
@@ -55,7 +62,7 @@ def create_post(post: schemas.PostCreate, db: Session = Depends(get_db)):
 # Get single post
 # Note: path parameters are always returned as a string. The id here is returned as string and hence must be converted to int
 @router.get('/{id}', response_model=schemas.Post) 
-def get_post(id: int, response: Response, db: Session = Depends(get_db)): 
+def get_post(id: int, response: Response, db: Session = Depends(get_db), current_user: int = Depends(oauth2.get_current_user)): 
     # print(id)
     # post = find_post(id)
 
@@ -67,34 +74,43 @@ def get_post(id: int, response: Response, db: Session = Depends(get_db)):
     if not post:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
                             detail=f'post with id {id} not found')
-
+    
+    # if for current_user
+    # if post.owner_id != current_user.id:
+    #     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to perform requested action")
+    
     # conn.commit()
 
     return post
 
 @router.delete('/{id}', status_code=status.HTTP_204_NO_CONTENT)
-def delete_post(id: int, db: Session = Depends(get_db)):
+def delete_post(id: int, db: Session = Depends(get_db), current_user: int = Depends(oauth2.get_current_user)):
     # post_to_del = find_post(id)
 
     # cursor.execute("""DELETE FROM "Post" WHERE id=%s RETURNING * """, str(id))
     # deleted_post = cursor.fetchone()
 
-    post = db.query(models.PostTable).filter(models.PostTable.id == id)#.first()
+    post_query = db.query(models.PostTable).filter(models.PostTable.id == id)#.first()
 
-    if post.first() == None:
+    post = post_query.first()
+
+    if post == None:
        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
                                 detail=f'post with id: {id} does not exist')
     # else: 
     #     my_posts.remove()
     #     return {'message': f'post with id: {id} is deleted'}
 
-    post.delete(synchronize_session=False)
+    if post.owner_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to perform requested action")
+    
+    post_query.delete(synchronize_session=False)
     db.commit()
 
     return {'message': f'Post with id {id} has been deleted'}
 
 @router.put('/{id}')
-def update_post(id: int, updated_post: schemas.PostCreate, db: Session = Depends(get_db)):
+def update_post(id: int, updated_post: schemas.PostCreate, db: Session = Depends(get_db), current_user: int = Depends(oauth2.get_current_user)):
     # post_to_update = find_post(id)
 
     # cursor.execute("""UPDATE "Post" SET title = %s, content = %s, published = %s
@@ -105,8 +121,9 @@ def update_post(id: int, updated_post: schemas.PostCreate, db: Session = Depends
 
     post_query = db.query(models.PostTable).filter(models.PostTable.id == id)
 
+    post = post_query.first()
 
-    if post_query.first() == None:
+    if post == None:
        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
                                 detail=f'post with id: {id} does not exist')
     # else: 
@@ -115,6 +132,9 @@ def update_post(id: int, updated_post: schemas.PostCreate, db: Session = Depends
     #     post_to_update['content'] = post['content']
     #     post_to_update['location'] = post['location']
 
+    if post.owner_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to perform requested action")
+    
     post_query.update(updated_post.model_dump(), synchronize_session=False)
 
     db.commit()

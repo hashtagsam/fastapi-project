@@ -1,5 +1,7 @@
 from pydantic import BaseModel, EmailStr
+from pydantic.types import conint
 from datetime import datetime
+from typing import Optional
 
 # class Post(BaseModel): # this is a schema. It is one of the data formats we want the user to provide input
 #     title: str
@@ -11,17 +13,10 @@ from datetime import datetime
 class PostBase(BaseModel):
     title: str
     content: str
-    published: bool
+    published: bool = True
 
 class PostCreate(PostBase):
     pass
-
-class Post(PostBase):
-    created_at: datetime
-
-    class Config:
-        orm_mode = True
-
 
 ### USERS' Schema ###
 class UserCreate(BaseModel):
@@ -39,3 +34,25 @@ class UserOut(BaseModel):
 class UserLogin(BaseModel):
     email: EmailStr
     password: str
+
+class Post(PostBase):
+    id: int
+    created_at: datetime
+    owner_id: int
+    owner: UserOut
+
+    class Config:
+        orm_mode = True
+
+
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+class TokenData(BaseModel):
+    id: Optional[str] = None
+
+class Vote(BaseModel):
+    post_id: int
+    dir: conint(le=1)

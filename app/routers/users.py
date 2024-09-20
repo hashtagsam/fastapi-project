@@ -1,4 +1,6 @@
-from .. import models, schemas
+# from app import oauth2
+from typing import List
+from .. import models, schemas, oauth2
 from fastapi import FastAPI, Response, status, HTTPException, Depends, APIRouter
 from ..database import get_db
 from sqlalchemy.orm import Session
@@ -32,3 +34,8 @@ def get_user(id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='User with id {id} not found')
     
     return user
+
+@router.get('/', response_model=List[schemas.UserOut])
+def get_user(db: Session = Depends(get_db), user_id: int = Depends(oauth2.get_current_user)):
+    users = db.query(models.User).all()
+    return users
