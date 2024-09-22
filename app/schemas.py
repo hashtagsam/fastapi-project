@@ -18,6 +18,7 @@ class PostBase(BaseModel):
 class PostCreate(PostBase):
     pass
 
+
 ### USERS' Schema ###
 class UserCreate(BaseModel):
     email: EmailStr
@@ -44,6 +45,20 @@ class Post(PostBase):
     class Config:
         orm_mode = True
 
+
+class PostOut(BaseModel):
+    post: Post
+    votes: int
+
+    class Config:
+        orm_mode = True
+
+class OnePostOut(BaseModel):
+    post: Post
+    votes: int
+
+    class Config:
+        orm_mode = True
 
 
 class Token(BaseModel):

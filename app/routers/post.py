@@ -3,13 +3,15 @@ from fastapi import FastAPI, Response, status, HTTPException, Depends, APIRouter
 from ..database import engine, get_db
 from sqlalchemy.orm import Session
 from typing import List, Optional
+from sqlalchemy import func
 
 router = APIRouter(
     prefix='/posts',
     tags=['posts']
 )
 
-@router.get('/', response_model=List[schemas.Post])
+@router.get('/', response_model=List[schemas.PostOut])
+# @router.get('/')
 def get_posts(db: Session = Depends(get_db), current_user: int = Depends(oauth2.get_current_user), 
               limit:int = 5, skip: int = 0, search: Optional[str] = ''): # get all posts
     # cursor.execute(""" SELECT * FROM "Post";""")
@@ -17,12 +19,21 @@ def get_posts(db: Session = Depends(get_db), current_user: int = Depends(oauth2.
     # print(posts)
     posts = db.query(models.PostTable).filter(models.PostTable.title.contains(search)) \
         .limit(limit).offset(skip).all()
+    
+    results = db.query(models.PostTable, func.count(models.Vote.post_id).label("votes")) \
+                .join(models.Vote, models.Vote.post_id == models.PostTable.id, isouter=True) \
+                .group_by(models.PostTable.id) \
+                .filter(models.PostTable.title.contains(search)).limit(limit).offset(skip) \
+                .all()
+    # print(results)
 
     # use this instead if you only want to return posts for that specific current_user
     # posts = db.query(models.PostTable).filter(models.PostTable.owner_id == current_user.id).all() 
 
     # print(current_user.id)
-    return posts
+
+    response = [{'post': post, 'votes': votes} for post, votes in results]
+    return response
 
 @router.post('/', status_code=status.HTTP_201_CREATED, response_model=schemas.Post)
 def create_post(post: schemas.PostCreate, db: Session = Depends(get_db), current_user: int = Depends(oauth2.get_current_user)):
@@ -61,7 +72,8 @@ def create_post(post: schemas.PostCreate, db: Session = Depends(get_db), current
 
 # Get single post
 # Note: path parameters are always returned as a string. The id here is returned as string and hence must be converted to int
-@router.get('/{id}', response_model=schemas.Post) 
+# @router.get('/{id}', response_model=schemas.PostOut) 
+@router.get('/{id}')
 def get_post(id: int, response: Response, db: Session = Depends(get_db), current_user: int = Depends(oauth2.get_current_user)): 
     # print(id)
     # post = find_post(id)
@@ -69,19 +81,29 @@ def get_post(id: int, response: Response, db: Session = Depends(get_db), current
     # cursor.execute("""SELECT * FROM "Post" WHERE id=%s RETURNING * """, str(id))
     # post = cursor.fetchone()
 
-    post = db.query(models.PostTable).filter(models.PostTable.id == id).first()
+    # posts = db.query(models.PostTable).filter(models.PostTable.id == id).first()
 
-    if not post:
+    posts = db.query(models.PostTable, func.count(models.Vote.post_id).label("votes")) \
+                .join(models.Vote, models.Vote.post_id == models.PostTable.id, isouter=True) \
+                .group_by(models.PostTable.id) \
+                .filter(models.PostTable.id == id).first()
+
+    if posts:
+        post, votes = posts
+        return {'post': post, 'votes': votes}
+    else:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
                             detail=f'post with id {id} not found')
     
+    # response = {'post': posts['post'], 'votes': posts['votes']} 
+    # print(posts)
     # if for current_user
     # if post.owner_id != current_user.id:
     #     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to perform requested action")
     
     # conn.commit()
 
-    return post
+    # return posts
 
 @router.delete('/{id}', status_code=status.HTTP_204_NO_CONTENT)
 def delete_post(id: int, db: Session = Depends(get_db), current_user: int = Depends(oauth2.get_current_user)):
